@@ -1,5 +1,14 @@
 import numpy as np
 from math import sqrt
+from qiskit import QuantumCircuit, QuantumRegister
+from qiskit_aer import AerSimulator
+from qiskit.visualization import circuit_drawer, plot_bloch_multivector, plot_histogram
+import matplotlib.pyplot as plt
+import seaborn as sns
+from IPython.display import display, Markdown
+
+import qiskit
+print(f"Qiskit version: {qiskit.__version__}")
 
 class Complex:
     def __init__(self, real=0, img=0):
@@ -224,8 +233,8 @@ class Quantum:
         ans[7, 7] = Complex(1)
         return ans.flatten()
 
-    Oracle_f1 = Gate(8, getOracle_f1())
-    Oracle_fxor = Gate(8, getOracle_fxor())
+    Oracle_f1 = Gate(8, getOracle_f1.__func__())
+    Oracle_fxor = Gate(8, getOracle_fxor.__func__())
 
     @staticmethod
     def Grover(f):
@@ -239,6 +248,88 @@ class Quantum:
         tD = np.full((4, 4), Complex(0.5), dtype=object)
         np.fill_diagonal(tD, Complex(-0.5))
         D = Gate(4, tD.flatten())
+
+        # Визуализация
+        qreg = QuantumRegister(2, 'q')
+        
+        # Шаг 1: Создаём суперпозицию (отдельная схема)
+        display(Markdown("### Шаг 1: Создаём суперпозицию"))
+        circuit1 = QuantumCircuit(qreg)
+        circuit1.h(qreg)
+        circuit1.save_statevector()
+        
+        simulator = AerSimulator(method='statevector')
+        job = simulator.run(circuit1)
+        result = job.result()
+        statevector = result.get_statevector(0)
+        display(plot_bloch_multivector(statevector))
+        display(circuit1.draw(output='mpl'))
+
+        # Шаг 2: Применяем оракул (отдельная схема)
+        display(Markdown("### Шаг 2: Оракул помечает решение"))
+        circuit2 = QuantumCircuit(qreg)
+        circuit2.h(qreg) 
+        # Матрица оракула (только вещественная часть)
+        oracle_matrix = np.array([[tU[i, j].real for j in range(4)] for i in range(4)])
+        circuit2.unitary(oracle_matrix, qreg, label='Oracle')
+        circuit2.save_statevector()
+        
+        job = simulator.run(circuit2)
+        result = job.result()
+        statevector = result.get_statevector(0)
+        display(plot_bloch_multivector(statevector))
+        display(circuit2.draw(output='mpl'))
+
+        # Визуализация матрицы оракула
+        plt.figure(figsize=(5, 5))
+        sns.heatmap([[float(x.real) for x in row] for row in tU], annot=True, cmap="YlOrRd")
+        plt.title(f"Oracle Matrix for {f.__name__}")
+        plt.show()
+
+        # Шаг 3: Применяем диффузию (отдельная схема)
+        display(Markdown("### Шаг 3: Усиливаем решение (Диффузия)"))
+        circuit3 = QuantumCircuit(qreg)
+        circuit3.h(qreg) 
+        circuit3.unitary(oracle_matrix, qreg, label='Oracle')  # Шаг 2
+        circuit3.h(qreg) 
+        circuit3.x(qreg)
+        circuit3.cz(qreg[0], qreg[1])
+        circuit3.x(qreg)
+        circuit3.h(qreg)
+        circuit3.save_statevector()
+        
+        job = simulator.run(circuit3)
+        result = job.result()
+        statevector = result.get_statevector(0)
+        display(plot_bloch_multivector(statevector))
+        display(circuit3.draw(output='mpl'))
+
+        # Визуализация матрицы диффузии
+        plt.figure(figsize=(5, 5))
+        sns.heatmap([[float(x.real) for x in row] for row in tD], annot=True, cmap="YlOrRd")
+        plt.title(f"Diffusion Matrix for {f.__name__}")
+        plt.show()
+
+        # Финальная схема для измерений
+        circuit_final = QuantumCircuit(qreg)
+        circuit_final.h(qreg)
+        circuit_final.unitary(oracle_matrix, qreg, label='Oracle')
+        circuit_final.h(qreg)
+        circuit_final.x(qreg)
+        circuit_final.cz(qreg[0], qreg[1])
+        circuit_final.x(qreg)
+        circuit_final.h(qreg)
+        circuit_final.measure_all()
+        
+        # Вероятности конечного состояния
+        display(Markdown("### Финальные вероятности"))
+       
+        simulator_qasm = AerSimulator()
+        job = simulator_qasm.run(circuit_final, shots=1024)
+        result = job.result()
+        counts = result.get_counts(0)
+        display(plot_histogram(counts, title=f"Вероятности для {f.__name__}"))
+
         return D * (U * psy)
 
 def f1(x1, x2):
